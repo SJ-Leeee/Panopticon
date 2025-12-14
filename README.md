@@ -1,92 +1,137 @@
-# Panopticon Backend
+# 👀 Panopticon
 
-NestJS 기반 APM 백엔드로, 수집된 로그·스팬을 Elasticsearch에 적재하고 조회/알림/롤업을 제공합니다. Kafka를 통해 들어오는 실시간 이벤트를 처리하고, 대시보드용 HTTP API와 WebSocket 알림 채널을 함께 제공합니다.
+<div align="center">
 
-## 아키텍처 한눈에 보기
-- **stream-processor**: Kafka `apm.logs`/`apm.spans` 토픽 소비 → 검증 후 ES 데이터 스트림(`logs-apm`, `traces-apm`)에 `_bulk` 색인. ERROR 로그는 별도 토픽(`apm.logs.error`)으로 포워딩.
-- **query-api**: 서비스/엔드포인트 메트릭, 스팬/로그 검색, 단일 트레이스 조회용 읽기 전용 HTTP API. 롤업(1분 버킷) 데이터와 Redis 캐시를 활용해 긴 구간 조회를 가속.
-- **error-stream**: `apm.logs.error`를 소비해 WebSocket으로 프런트엔드에 실시간 에러 알림 송신.
-- **aggregator**: 닫힌 분(minute) 단위로 `traces-apm`을 집계해 롤업 데이터 스트림(`metrics-apm`)을 채우는 워커.
-- **shared**: 공통 DTO, 저장소, Kafka/ES 설정, Redis 캐시 유틸.
+**"모든 서비스의 데이터를 한눈에 관찰하다"**
 
-## 주요 기능
-- APM 로그/스팬 ingest 및 `_bulk` 색인 최적화(배치/바이트/타이머 기준 플러시, 병렬 플러시 한도).
-- 서비스·엔드포인트 메트릭(요청 건수, p95/p90/p50, 에러율)과 트레이스/스팬/로그 검색 API 제공.
-- 롤업 파이프라인(1분 버킷) 및 롤업+RAW 자동 병합 조회, Redis 기반 단기 캐시.
-- Kafka → WebSocket 에러 스트림 브리지로 실시간 에러 알림.
+분산 시스템의 Metrics, Traces, Logs를 통합 모니터링하는 Observability 플랫폼
 
-## 디렉터리 구조
+[최종 발표회 영상 보기](#-데모-영상) [판옵티콘 Repository](https://github.com/panopticon-jungle10) 
+
+</div>
+
+## 📖 프로젝트 소개
+
+Panopticon은 마이크로서비스 아키텍처 환경에서 발생하는 **장애를 짧은 시간 내에 인지하고 근본 원인까지 파악**할 수 있도록 설계된 통합 관측 플랫폼입니다.
+
+"어디서 문제가 생겼지?"라는 질문에 답하기 위해 흩어진 로그, 트레이스, 메트릭을 하나의 화면에서 연결하여 보여줍니다.
+
+### 📅 프로젝트 기간
+
+프로젝트 전체 기간 **2025.10.27 ~ 2025.11.29** (5주) </br>
+프로젝트 기획 기간 **2025.10.27 ~ 2025.11.2** (1주) </br>
+프로젝트 개발 기간 **2025.11.3 ~ 2025.11.29** (4주)
+
+### 🎯 핵심 가치
+
+- **빠른 장애 대응**: 실시간 모니터링과 자동 알림으로 장애 발생 즉시 인지
+- **통합 분석**: Trace ID 기반으로 로그-트레이스-메트릭을 연결하여 컨텍스트 파악
+- **직관적 시각화**: Waterfall, Flame Graph 등 다양한 뷰로 복잡한 데이터를 쉽게 이해
+- **SLO 기반 운영**: 사용자가 서비스 품질 목표를 설정하고 실시간으로 준수 여부 모니터링
+
+## ✨ 주요 기능
+
+### 1️⃣ **실시간 서비스 모니터링**
+
+서비스의 요청수, 에러율, 레이턴시(p50/p90/p95)를 3초 간격으로 자동 갱신하여 실시간 모니터링합니다. </br>
+시간대별 추이를 한눈에 파악해 트래픽 급증이나 에러 발생 시점을 즉시 식별할 수 있습니다.
+
+### 2️⃣ **엔드포인트별 성능 분석**
+
+상위 엔드포인트를 요청수, 레이턴시, 에러율 기준으로 시각화하여 병목 지점을 빠르게 파악합니다. </br>
+각 엔드포인트를 클릭하면 느린 요청(Slow Traces)과 에러 요청(Error Traces)을 즉시 확인할 수 있습니다.
+
+### 3️⃣ **다각도 트레이스 분석**
+
+개별 요청의 전체 실행 경로를 Waterfall, Flame Graph, Map, Span List 4가지 뷰로 시각화합니다.</br>
+
+- **Waterfall View**: 각 스팬의 실행 시간을 타임라인으로 표시합니다. 어느 스팬에 얼마의 시간이 걸렸는지 직관적으로 파악할 수 있습니다.
+- **Flame Graph View**: 실행 시간 비중을 시각화하여 시간 소모가 큰 작업을 한눈에 식별할 수 있습니다.
+- **Map View**: 서비스 간 호출 관계도를 노드와 엣지로 표현하여 의존성을 쉽게 이해할 수 있습니다.
+- **Span List View**: 모든 스팬을 테이블 형태로 나열하여 상세 정보를 비교 분석할 수 있습니다.
+
+각 스팬 클릭 시 HTTP 메서드, URL, Status Code, Duration, Labels, 에러 메시지, 스택 트레이스 등 상세 정보를 즉시 확인할 수 있습니다.
+
+### 4️⃣ **지능형 로그 그룹화**
+
+메시지 패턴을 자동 분석해 동일 유형의 에러를 그룹화합니다. 비슷한 유형의 로그를 확인하여 반복 발생하는 장애 패턴을 신속히 파악하고 근본 원인 분석 시간을 단축합니다. Trace ID를 클릭하면 연결된 트레이스로 바로 이동하여 에러 발생 전후 맥락을 파악할 수 있습니다.
+
+### 5️⃣ **SLO 기반 알림**
+
+SLO(Service Level Objective) 기반으로 가용성, 레이턴시, 에러율 임계값을 설정하고, 실시간 모니터링 데이터와 비교하여 목표 미달 시 즉시 알림을 발송합니다. Slack, Discord, Email 등 외부 서비스 연동을 통해 장애 상황을 팀 전체에 신속하게 공유하여 빠른 대응을 가능하게 합니다.
+
+## 🎨 전체 구조
+
+Panopticon은 **데이터 수집 → 처리 → 저장 → 시각화**의 파이프라인으로 구성되어 있습니다:
+
+1. **데이터 수집 계층**: Monitoring SDK가 애플리케이션에서 Traces, Logs를 수집
+2. **수집 및 전처리 계층**: ProducerServer가 데이터를 수신하고 Kafka 토픽에 발행
+3. **저장 계층**: OpenSearch에 시계열 데이터를 Data Stream으로 저장 (logs, traces. errors)
+4. **집계 계층**: Aggregator가 1분 단위로 메트릭을 사전 집계하여 metrics-apm에 저장하고, Redis로 결과 캐싱
+5. **조회 계층**: Query API가 OpenSearch와 Redis를 통해 메트릭, 트레이스, 로그 데이터를 제공
+6. **시각화 계층**: Frontend에서 사용자에게 직관적인 대시보드 제공
+7. **알림 계층**: SLO 위반 시 Slack/Discord/Email로 알림 발송
+
+## 🛠 기술 스택
+
+## 📂 프로젝트 구조
+
 ```
-backend/
-  src/
-    query-api/           # 읽기 전용 HTTP API
-    stream-processor/    # Kafka 컨슈머(로그/스팬) + 샘플 프로듀서
-    error-stream/        # 에러 로그 WebSocket 브리지
-    aggregator/          # 롤업 워커
-    shared/              # 공통 DTO/서비스/설정
+panopticon/
+├── panopticon-frontend/           # Panopticon 웹 UI (실시간 모니터링, 트레이스 분석, SLO 알림 등)
+├── panopticon-backend/            # Panopticon 백엔드 API 서버 (데이터 수집, 저장, 분석 등)
+├── panopticon-demo-service/       # 데이터 발생용 QnA 게시판 서비스 LogQ
+├── panopticon-auth-server/        # Panopticon 모니터링 플랫폼의 중앙 인증 서버
+└── panopticon-monitoring-sdk/     # 모니터링 SDK 라이브러리 모음
 ```
 
-## 빠른 시작
-> 모든 명령은 `backend` 디렉터리에서 실행합니다.
+## 🛠 시스템 아키텍처
 
-```bash
-cd backend
-npm ci
+<div align="center">
 
-# 로컬 개발 (env는 .env/.env.local 사용)
-npm run start:query-api          # HTTP API (포트 3001)
-npm run start:stream-processor   # Kafka 컨슈머
-npm run start:error-stream       # WebSocket + Kafka
-npm run start:aggregator         # 롤업 워커
-```
+![Panopticon Architecture](docs/images/아키텍처.png)
 
-### 필수/주요 환경 변수
-- OpenSearch/ES: `ELASTICSEARCH_NODE`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`, `OPENSEARCH_REJECT_UNAUTHORIZED`, `USE_ISM`
-- Kafka: `KAFKA_BROKERS` (`KAFKA_BROKERS_LOCAL`), `KAFKA_SSL`, `KAFKA_SASL_MECHANISM`, `KAFKA_SASL_USERNAME/PASSWORD`, `KAFKA_AWS_REGION`
-- APM 토픽: `KAFKA_APM_LOG_TOPIC`, `KAFKA_APM_SPAN_TOPIC`, `KAFKA_APM_LOG_ERROR_TOPIC`
-- Redis 캐시: `REDIS_HOST` (캐시 비활성화 시 생략), `METRICS_CACHE_PREFIX`, `METRICS_CACHE_TTL_SECONDS`
-- 롤업: `ROLLUP_ENABLED`, `ROLLUP_THRESHOLD_MINUTES`, `ROLLUP_BUCKET_MINUTES`, `ROLLUP_CACHE_TTL_SECONDS`
+</div>
 
-## API 개요 (주요 엔드포인트)
-- **트레이스**
-  - `GET /query/traces/:traceId` : 단일 트레이스의 스팬/로그 전체 반환(서비스/환경 필터 선택)
-  - `GET /query/services/:serviceName/traces` : 서비스별 루트 스팬 검색(상태/지연/시간 범위/정렬/페이지)
-- **스팬 검색**
-  - `GET /query/spans` : 서비스/환경/이름/종류/상태/지연/트레이스·부모 ID 기준 검색, 페이지네이션/정렬 지원
-- **로그 검색**
-  - `GET /query/logs` : 서비스/환경/레벨/트레이스·스팬 ID/메시지로 검색, 기본 최근 15분 범위
-- **서비스 메트릭**
-  - `GET /query/services/:serviceName/metrics` : 요청 건수(버킷 합계), p95/p90/p50, 에러율 시계열. 긴 구간은 롤업+RAW 병합, Redis 캐시 활용
-- **서비스 개요**
-  - `GET /query/services` : 시간 구간 내 서비스별 요청수/p95/에러율 목록(정렬/검색/limit 지원)
-- **엔드포인트 메트릭/트레이스**
-  - `GET /query/services/:serviceName/endpoints` : 엔드포인트별 요청수/p95/에러율 랭킹(정렬/필터/limit)
-  - `GET /query/services/:serviceName/endpoints/:endpointName/traces` : 특정 엔드포인트의 최근 에러/느린 트레이스
-- **WebSocket 에러 알림**
-  - 경로: `ws://<host>:3010/ws/error-logs` (환경 변수로 변경 가능)
-  - 이벤트: `error-log` (Kafka `apm.logs.error` 소비 후 전송)
+## 🎬 프로젝트 시연 영상
 
-## 롤업 파이프라인
-- Aggregator가 닫힌 1분 구간을 계획(MinuteWindowPlanner) → 서비스/환경별 percentiles 및 에러율 집계 → `metrics-apm` 데이터 스트림에 `_bulk create` 저장.
-- Query API는 조회 구간이 `ROLLUP_THRESHOLD_MINUTES` 이상이면 과거 구간을 롤업으로 채우고, 최신 구간은 RAW 집계로 결합해 응답.
+<div align="center">
 
-## 운영 팁
-- Kafka/ES/Redis는 `infra/docker-compose.yml`로 로컬 부트스트랩 가능.
-- `_bulk` 설정은 `BULK_BATCH_SIZE`, `BULK_BATCH_BYTES_MB`, `BULK_MAX_PARALLEL_FLUSHES` 등으로 조정해 클러스터 부하에 맞출 수 있습니다.
-- Throughput 모니터링: `STREAM_THROUGHPUT_*` 환경 변수를 설정하면 컨슈머 처리량 로그를 샘플링해 남깁니다.
-- 보안: OpenSearch ISM 또는 Elasticsearch ILM/템플릿을 자동 생성하지만, 프로덕션에서는 최소 권한 계정과 TLS 설정을 사용하세요.
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+<a href="https://youtu.be/l281cGm2agY?si=GzG0Sy5uGpbCk7HT">
+<img src="https://img.youtube.com/vi/l281cGm2agY/0.jpg" alt="Watch the video" width="100%"/>
+</a>
+<p><i>🎥 영상을 클릭하면 YouTube로 이동합니다</i></p>
+</td>
+<td width="50%" align="center" valign="top">
+<img src="docs/images/포스터.png" alt="Panopticon Poster" width="100%"/>
+</td>
+</tr>
+</table>
 
-## 샘플 이벤트 발행
-```bash
-npm run test:sample:log   # Kafka에 샘플 로그 전송
-npm run test:sample:span  # Kafka에 샘플 스팬 전송
-```
+</div>
 
-## 운영 가이드 링크
-- 백엔드 빌드/배포/환경 변수 세부 가이드는 [backend/OPERATIONS.md](backend/OPERATIONS.md)를 참고하세요.
+## 👥 팀원 소개
 
-## 이 아키텍처의 강점
-- **책임 분리 + 스케일링**: ingest(stream-processor) / 롤업(aggregator) / 조회(query-api) / 실시간 알림(error-stream)을 각각 컨테이너로 분리해 장애 격리, 트래픽 패턴별 독립 확장이 가능.
-- **운영 튜너블**: 환경 변수만으로 ILM/ISM, Kafka SSL/SASL, `_bulk` 버퍼, 롤업/캐시 전략을 즉시 조정해 인프라 부하에 맞출 수 있음.
-- **성능 보호**: 1분 롤업 + Redis 캐시로 긴 구간 조회를 가볍게 하고, ThroughputTracker/배치 플러시로 컨슈머 병목을 방지.
-- **데이터 신뢰성**: DTO 검증, ISM/ILM 자동 생성, idempotent 롤업 ID로 중복/충돌을 줄이고, 에러 로그는 별도 토픽으로 분리해 손실 위험을 낮춤.
+<div align="center">
+
+| <img src="https://avatars.githubusercontent.com/u/125449701?v=4" width="120"/> | <img src="https://github.com/username2.png" width="120"/> | <img src="https://avatars.githubusercontent.com/u/90031820?v=4" width="120"/> | <img src="https://avatars.githubusercontent.com/u/132549231?v=4" width="120"/> | <img src="https://github.com/username5.png" width="120"/> |
+| :----------------------------------------------------------------------------: | :-------------------------------------------------------: | :---------------------------------------------------------------------------: | :----------------------------------------------------------------------------: | :-------------------------------------------------------: |
+|                  **[🙋🏻‍♀️ 장아연](https://github.com/ayeon59)**                   |          **[김정은](https://github.com/Jen-kj)**          |                   **[이시영](https://github.com/krsy0411)**                   |                   **[이승준](https://github.com/SJ-Leeee)**                    |        **[전세영](https://github.com/jeonchacha)**        |
+|                                    Frontend                                    |                         Frontend                          |                                   Frontend                                    |                                    Backend                                     |                          Backend                          |
+
+</div>
+
+## 📬 문의
+
+- **이메일**: jay3916@naver.com
+
+<div align="center">
+
+**Panopticon으로 분산 시스템을 한눈에 관찰하세요** 👀
+
+Made with 🥕 by Krafton Jungle 10th Team 3
+
+</div>
