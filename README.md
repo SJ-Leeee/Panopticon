@@ -6,7 +6,7 @@
 
 분산 시스템의 Metrics, Traces, Logs를 통합 모니터링하는 Observability 플랫폼
 
-[최종 발표회 영상 보기](#-데모-영상) [판옵티콘 Repository](https://github.com/panopticon-jungle10) 
+[최종 발표회 영상 보기](https://youtu.be/l281cGm2agY?si=GzG0Sy5uGpbCk7HT) | [판옵티콘 Repository](https://github.com/panopticon-jungle10) 
 
 </div>
 
